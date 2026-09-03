@@ -1,0 +1,365 @@
+%% AEE 362 Lab 4
+
+clear; clc; close all;
+
+%% Output Folder
+outputFolder = 'lab4_plots';
+savePlots = true;
+
+if savePlots && ~exist(outputFolder, 'dir')
+    mkdir(outputFolder);
+end
+
+%% Givens
+tau = 0.10;  % thickness ratio t/c
+Ks_cases = [3.0, 1.3];
+rho_inf = 1.225;   % kg/m^3
+V_inf = 100;   % m/s
+c = 1.0;
+b = 1.0;
+q_inf = 0.5 * rho_inf * V_inf^2;
+Sref = c * b;
+
+% Grid / domain
+Nx = 101;    % x points
+Nz = 101;    % z points
+xmin = -0.5;
+xmax =  1.5;
+zmax =  1.5;
+
+% Physical inputs for dimensional drag force
+rho_inf = 1.225;   % kg/m^3
+V_inf  = 100;  % m/s
+c_ref  = 1.0;  % m
+b_ref  = 1.0;  % m
+
+q_inf = 0.5 * rho_inf * V_inf^2;
+Sref  = c_ref * b_ref;
+
+% Solver
+method = 'GS';   % GS
+omega = 1.0;
+tol = 1e-6;
+maxIter = 40000;
+
+%% Load Data
+tsd_K3 = load_tsd_file('TSDEdata3.txt');     % x/c, Cbar_p
+tsd_K13 = load_tsd_file('TSDEdata1_3.txt');   % x/c, Cbar_p
+incData = load_incomp_file('incompr.txt');    % x/c, Cp_incompressible
+
+results = struct([]);
+
+%% Loop over cases
+for n = 1:numel(Ks_cases)
+
+    Ks = Ks_cases(n);
+    fprintf('Starting case K_s = %.1f\n', Ks);
+
+    % K_tau = (1 - M^2) / ( (M^2 * tau)^(2/3) )
+    fun = @(M) (1 - M.^2) ./ ((M.^2 .* tau).^(2/3)) - Ks;
+
+    if abs(Ks - 3.0) < 1e-12
+        Mguess = 0.75;
+    else
+        Mguess = 0.88;
+    end
+
+    M_inf = fzero(fun, Mguess);
+    beta2 = 1 - M_inf^2;
+    beta = sqrt(beta2);
+
+    fprintf('M_inf = %.6f, beta^2 = %.6f, beta = %.6f\n', M_inf, beta2, beta);
+
+    % Solve PG equation
+    [x, z, phi, iter, errHist] = solve_pg(beta2, tau, Nx, Nz, ...
+                                          xmin, xmax, zmax, ...
+                                          method, omega, tol, maxIter);
+
+    fprintf('Finished K_s = %.1f | Iter = %d | Final error = %.3e\n', Ks, iter, errHist(end));
+
+    % Surface Cp from PG solution
+    [xBody, Cp_pg, Cbar_pg] = get_surface_cp(x, phi, tau);
+
+    % Drag from PG solution
+    Cd_pg = compute_drag(xBody, Cp_pg, tau);
+
+    % Compare with TSD
+    if abs(Ks - 3.0) < 1e-12
+        tsd = tsd_K3;
+    else
+        tsd = tsd_K13;
+    end
+
+    x_tsd = tsd(:,1);
+    Cbar_tsd = tsd(:,2);
+    Cp_tsd = Cbar_tsd * tau^(2/3);
+    Cd_tsd = compute_drag(x_tsd, Cp_tsd, tau);
+
+    % Compare with PG-corrected incompressible
+    x_inc  = incData(:,1);
+    Cp_inc  = incData(:,2);
+    Cp_inc_corr = Cp_inc / beta;
+    Cbar_inc = Cp_inc_corr / tau^(2/3);
+    Cd_inc_corr = compute_drag(x_inc, Cp_inc_corr, tau);
+
+    %% Drag coefficients and drag forces
+    Cd_pg       = compute_drag(xBody, Cp_pg, tau);
+    Cd_tsd      = compute_drag(x_tsd, Cbar_tsd * tau^(2/3), tau);
+    Cd_inc_corr = compute_drag(x_inc, Cp_inc_corr, tau);
+    
+    % Remove tiny numerical roundoff near zero
+    if abs(Cd_pg) < 1e-12
+        Cd_pg = 0;
+    end
+    if abs(Cd_tsd) < 1e-12
+        Cd_tsd = 0;
+    end
+    if abs(Cd_inc_corr) < 1e-12
+        Cd_inc_corr = 0;
+    end
+    
+    % Drag forces
+    D_pg       = q_inf * Sref * Cd_pg;
+    D_tsd      = q_inf * Sref * Cd_tsd;
+    D_inc_corr = q_inf * Sref * Cd_inc_corr;
+
+ 
+
+    % Store results
+    results(n).Ks  = Ks;
+    results(n).M_inf  = M_inf;
+    results(n).beta2 = beta2;
+    results(n).beta = beta;
+    results(n).iter  = iter;
+    results(n).errHist  = errHist;
+    results(n).x  = x;
+    results(n).z  = z;
+    results(n).phi  = phi;
+    results(n).xBody   = Cp_pg;
+    results(n).Cbar_pg = Cbar_pg;
+    results(n).x_tsd   = x_tsd;
+    results(n).Cbar_tsd = Cbar_tsd;
+    results(n).Cd_tsd = Cd_tsd;
+    results(n).x_inc   = x_inc;
+    results(n).Cbar_inc  = Cbar_inc;
+    results(n).Cd_pg       = Cd_pg;
+    results(n).Cd_tsd      = Cd_tsd;
+    results(n).Cd_inc_corr = Cd_inc_corr;
+    results(n).D_pg        = D_pg;
+    results(n).D_tsd       = D_tsd;
+    results(n).D_inc_corr  = D_inc_corr;
+
+    %% Phi contour plot
+    fig1 = figure('Color','w');
+    contourf(x, z, phi.', 12, 'LineColor', 'none');
+    hold on;
+    contour(x, z, phi.', 12, ':k', 'LineWidth', 1.0);
+    
+    colorbar;
+    xlabel('x/c');
+    ylabel('z/c');
+    title(sprintf('\\phi contour, K_s = %.1f', Ks));
+    
+    ax = gca;
+    ax.Color = 'w';
+    ax.XColor = 'k';
+    ax.YColor = 'k';
+    
+    drawnow;
+    pause(0.1);
+    
+    if savePlots
+        saveas(fig1, fullfile(outputFolder, sprintf('phi_contour_Ks_%0.1f.png', Ks)));
+    end
+
+    %% Convergence plot
+    fig2 = figure('Color','w');
+    semilogy(1:length(errHist), errHist, 'LineWidth', 1.5);
+    grid on;
+    xlabel('Iteration');
+    ylabel('Relative error');
+    title(sprintf('Convergence history, K_s = %.1f', Ks));
+    ax = gca;
+    ax.Color = 'w';
+    ax.XColor = 'k';
+    ax.YColor = 'k';
+    drawnow;
+    pause(0.1);
+
+    if savePlots
+        saveas(fig2, fullfile(outputFolder, sprintf('convergence_Ks_%0.1f.png', Ks)));
+    end
+
+    %% Cp comparison plot
+    fig3 = figure('Color','w'); hold on;
+    plot(xBody, Cbar_pg, 'LineWidth', 1.8, ...
+        'DisplayName', sprintf('PG solution, K_s = %.1f', Ks));
+    plot(x_tsd, Cbar_tsd, 'o-', 'LineWidth', 1.1, ...
+        'DisplayName', 'TSD data');
+    plot(x_inc, Cbar_inc, '--', 'LineWidth', 1.4, ...
+        'DisplayName', 'PG-corrected incompressible');
+
+    set(gca, 'YDir', 'reverse');
+    grid on;
+    xlabel('x/c', 'Interpreter', 'tex');
+    ylabel('$\bar{C}_p$', 'Interpreter', 'latex');
+    title(sprintf('Pressure coefficient comparison, K_s = %.1f', Ks), 'Interpreter', 'tex');
+    legend('Location', 'best', 'Interpreter', 'tex');
+    ax = gca;
+    ax.Color = 'w';
+    ax.XColor = 'k';
+    ax.YColor = 'k';
+    drawnow;
+    pause(0.1);
+
+    if savePlots
+        saveas(fig3, fullfile(outputFolder, sprintf('Cp_comparison_Ks_%0.1f.png', Ks)));
+    end
+end
+
+%% Drag Table
+fprintf('Case   M_inf    beta^2    Iter     C_D,PG       C_D,TSD      C_D,incPG    D_PG [N]     D_TSD [N]    D_incPG [N]\n');
+for n = 1:numel(results)
+    fprintf('K=%-4.1f %-8.5f %-8.5f %-8d %-12.6e %-12.6e %-12.6e %-12.6e %-12.6e %-12.6e\n', ...
+        results(n).Ks, results(n).M_inf, results(n).beta2, results(n).iter, ...
+        results(n).Cd_pg, results(n).Cd_tsd, results(n).Cd_inc_corr, ...
+        results(n).D_pg, results(n).D_tsd, results(n).D_inc_corr);
+end
+fprintf('Dimensional drag assumes rho_inf = %.3f kg/m^3, V_inf = %.3f m/s, and Sref = %.3f m^2.\n', ...
+    rho_inf, V_inf, Sref);
+
+%% Functions
+function data = load_tsd_file(filename)
+    data = readmatrix(filename, 'FileType', 'text', 'CommentStyle', '%');
+    data = data(:,1:2);
+    data = data(all(~isnan(data),2), :);
+end
+
+function data = load_incomp_file(filename)
+    data = readmatrix(filename, 'FileType', 'text', 'NumHeaderLines', 1);
+    data = data(:,1:2);
+    data = data(all(~isnan(data),2), :);
+end
+
+function [x, z, phi, iter, errHist] = solve_pg(beta2, tau, Nx, Nz, ...
+                                               xmin, xmax, zmax, ...
+                                               method, omega, tol, maxIter)
+
+    x = linspace(xmin, xmax, Nx);
+    z = linspace(0, zmax, Nz);
+
+    dx = x(2) - x(1);
+    dz = z(2) - z(1);
+
+    phi    = zeros(Nx, Nz);
+    phiOld = phi;
+
+    onBody = (x >= 0) & (x <= 1);
+    Zp     = 2*tau*(1 - 2*x);
+
+    denom = 2*beta2/dx^2 + 2/dz^2;
+
+    errHist = nan(maxIter,1);
+    err  = inf;
+    iter = 0;
+
+    method = upper(method);
+
+    while err > tol && iter < maxIter
+        iter = iter + 1;
+        phiOld = phi;
+
+        switch method
+
+            case 'JACOBI'
+                % Left and right boundaries
+                for j = 1:Nz
+                    phi(1,j)  = phiOld(3,j);
+                    phi(Nx,j) = phiOld(Nx-2,j);
+                end
+
+                % Top and bottom boundaries
+                for i = 2:Nx-1
+                    phi(i,Nz) = phiOld(i,Nz-2);
+
+                    if onBody(i)
+                        phi(i,1) = phiOld(i,3) - 2*dz*Zp(i);
+                    else
+                        phi(i,1) = phiOld(i,3);
+                    end
+                end
+
+                % Interior update
+                for i = 2:Nx-1
+                    for j = 2:Nz-1
+                        phiStar = ( beta2*(phiOld(i-1,j) + phiOld(i+1,j))/dx^2 + ...
+                                   (phiOld(i,j-1) + phiOld(i,j+1))/dz^2 ) / denom;
+
+                        phi(i,j) = (1 - omega)*phiOld(i,j) + omega*phiStar;
+                    end
+                end
+
+            case 'GS'
+                % Left boundary first
+                for j = 1:Nz
+                    phi(1,j) = phi(3,j);
+                end
+
+                for i = 2:Nx
+                    for j = 1:Nz
+
+                        if i == Nx
+                            % right boundary
+                            phi(i,j) = phi(i-2,j);
+
+                        elseif j == 1
+                            % bottom boundary
+                            if onBody(i)
+                                phi(i,j) = phi(i,3) - 2*dz*Zp(i);
+                            else
+                                phi(i,j) = phi(i,3);
+                            end
+
+                        elseif j == Nz
+                            % top boundary
+                            phi(i,j) = phi(i,j-2);
+
+                        else
+                            % interior point
+                            phiStar = ( beta2*(phi(i-1,j)    + phiOld(i+1,j))/dx^2 + ...
+                                       (phi(i,j-1)          + phiOld(i,j+1))/dz^2 ) / denom;
+
+                            phi(i,j) = (1 - omega)*phi(i,j) + omega*phiStar;
+                        end
+                    end
+                end
+        end
+
+        err = norm(phi - phiOld, 'fro') / max(norm(phi, 'fro'), eps);
+        errHist(iter) = err;
+    end
+
+    errHist = errHist(1:iter);
+end
+
+function [xBody, Cp_raw, Cbar] = get_surface_cp(x, phi, tau)
+    dx = x(2) - x(1);
+    u = zeros(size(x));
+
+    for i = 2:length(x)-1
+        u(i) = (phi(i+1,1) - phi(i-1,1)) / (2*dx);
+    end
+
+    u(1) = (phi(2,1) - phi(1,1)) / dx;
+    u(end) = (phi(end,1) - phi(end-1,1)) / dx;
+
+    onBody = (x >= 0) & (x <= 1);
+    xBody  = x(onBody);
+    Cp_raw = -2*u(onBody);
+    Cbar   = Cp_raw / tau^(2/3);
+end
+
+function Cd = compute_drag(xBody, Cp_upper, tau)
+    Zp = 2*tau*(1 - 2*xBody);
+    Cd = 2 * trapz(xBody, Cp_upper .* Zp);
+end

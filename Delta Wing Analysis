@@ -1,0 +1,260 @@
+%% AEE 362 - Lab 3 - Parts 3 and 4
+% Delta wing data analysis and engineering decision code
+
+clear; clc; close all;
+
+%% Givens
+M = [1.50 1.75 2.00 2.25 2.50 3.00];
+Lambda_deg = [45 60 75];
+tau_vals = [0.04 0.06 0.10];
+m_vals = [0.5 0.2];
+
+CD = nan(length(m_vals), length(tau_vals), length(Lambda_deg), length(M));
+
+%m = 0.5;
+%tau = 0.04;
+CD(1,1,1,:) = [0.0068 0.0049 0.0040 0.0033 0.0026 0.0013]; % Lambda = 45
+CD(1,1,2,:) = [0.0043 0.0038 0.0035 0.0037 0.0032 0.0025]; % Lambda = 60
+CD(1,1,3,:) = [0.0026 0.0024 0.0023 0.0022 0.0021 0.0018]; % Lambda = 75
+
+% tau = 0.06
+CD(1,2,1,:) = [0.0135 0.0085 0.0065 0.0047 0.0038 0.0029]; % Lambda = 45
+CD(1,2,2,:) = [0.0077 0.0055 0.0079 0.0084 0.0071 0.0055]; % Lambda = 60
+CD(1,2,3,:) = [0.0058 0.0055 0.0052 0.0049 0.0046 0.0042]; % Lambda = 75
+
+% tau = 0.10
+CD(1,3,1,:) = [0.0424 0.0309 0.0248 0.0202 0.0162 0.0080]; % Lambda = 45
+CD(1,3,2,:) = [0.0270 0.0235 0.0219 0.0213 0.0188 0.0153]; % Lambda = 60
+CD(1,3,3,:) = [0.0160 0.0153 0.0144 0.0136 0.0128 0.0116]; % Lambda = 75
+
+%
+% m = 0.2
+% tau = 0.04
+CD(2,1,1,:) = [0.0135 0.0065 0.0066 0.0063 0.0041 0.0018]; % Lambda = 45
+CD(2,1,2,:) = [0.0047 0.0051 0.0055 0.0071 0.0056 0.0041]; % Lambda = 60
+CD(2,1,3,:) = [0.0017 0.0017 0.0018 0.0018 0.0019 0.0023]; % Lambda = 75
+
+% tau = 0.06
+CD(2,2,1,:) = [0.0303 0.0191 0.0148 0.0100 0.0093 0.0039]; % Lambda = 45
+CD(2,2,2,:) = [0.0106 0.0114 0.0213 0.0160 0.0126 0.0092]; % Lambda = 60
+CD(2,2,3,:) = [0.0039 0.0039 0.0041 0.0044 0.0047 0.0052]; % Lambda = 75
+
+% tau = 0.10
+CD(2,3,1,:) = [0.0814 0.0531 0.0412 0.0334 0.0268 0.0139]; % Lambda = 45
+CD(2,3,2,:) = [0.0295 0.0351 0.0342 0.0444 0.0350 0.0255]; % Lambda = 60
+CD(2,3,3,:) = [0.0107 0.0109 0.0114 0.0121 0.0132 0.0145]; % Lambda = 75
+
+%% 3A
+markers = {'o-','s-','d-'};
+outDir = fullfile(pwd,'lab3_part34_outputs');
+if ~exist(outDir,'dir')
+    mkdir(outDir);
+end
+
+for im = 1:length(m_vals)
+    for it = 1:length(tau_vals)
+        fig = figure('Color','w'); hold on; grid on; box on;
+
+        for iL = 1:length(Lambda_deg)
+            plot(M, squeeze(CD(im,it,iL,:)), markers{iL}, 'LineWidth', 1.6, ...
+                'MarkerSize', 7, 'DisplayName', sprintf('\\Lambda = %d', Lambda_deg(iL)));
+        end
+
+        xlabel('Mach number, M');
+        ylabel('Drag coefficient, C_D');
+        title(sprintf('C_D vs M for m = %.1f, \tau = %.2f', m_vals(im), tau_vals(it)));
+        legend('Location','best');
+
+        figname = sprintf('part3a_m_%02d_tau_%02d.png', round(10*m_vals(im)), round(100*tau_vals(it)));
+        exportgraphics(fig, fullfile(outDir,figname), 'Resolution', 300);
+    end
+end
+
+%% 3B
+B = sqrt(M.^2 - 1);
+AR = 4 ./ tand(Lambda_deg);
+
+for im = 1:length(m_vals)
+    fig = figure('Color','w'); hold on; grid on; box on;
+
+    legendEntries = {};
+    pltCount = 0;
+
+    for it = 1:length(tau_vals)
+        for iL = 1:length(Lambda_deg)
+            x = B .* cotd(Lambda_deg(iL));
+            K = squeeze(CD(im,it,iL,:))' ./ (tau_vals(it)^2 * AR(iL));
+
+            pltCount = pltCount + 1;
+            plot(x, K, 'o-', 'LineWidth', 1.4, 'MarkerSize', 6, ...
+                'DisplayName', sprintf('\\tau = %.2f, \\Lambda = %d', tau_vals(it), Lambda_deg(iL)));
+            legendEntries{pltCount} = sprintf('\\tau = %.2f, \\Lambda = %d', tau_vals(it), Lambda_deg(iL)); %#ok<SAGROW>
+        end
+    end
+
+    xline(1,'k--','Bcot(\Lambda)=1','LineWidth',1.2,'LabelVerticalAlignment','middle');
+    xlabel('B cot(\Lambda)');
+    ylabel('K = C_D / (\tau^2 AR)');
+    title(sprintf('K vs Bcot(\\Lambda) for m = %.1f', m_vals(im)));
+    legend('Location','bestoutside');
+
+    figname = sprintf('part3b_m_%02d.png', round(10*m_vals(im)));
+    exportgraphics(fig, fullfile(outDir,figname), 'Resolution', 300);
+end
+
+%% Choosing Delta Wing
+% Cruise requirements
+h_ft = 61000;
+V_kmh = 1800;
+mass_kg = 77000;
+CL_cruise = 0.2;
+g = 9.80665;
+
+h_m = h_ft * 0.3048;
+V = V_kmh / 3.6;
+W = mass_kg * g;
+
+% Standard atmosphere at altitude
+[T, a, p, rho] = isa_simple(h_m);
+M_cruise = V / a;
+q = 0.5 * rho * V^2;
+S_req = W / (q * CL_cruise);
+
+fprintf('\nResults \n');
+fprintf('Altitude         = %.0f ft (%.1f m)\n', h_ft, h_m);
+fprintf('Velocity         = %.1f km/hr (%.3f m/s)\n', V_kmh, V);
+fprintf('Temperature      = %.2f K\n', T);
+fprintf('Pressure         = %.2f Pa\n', p);
+fprintf('Density          = %.6f kg/m^3\n', rho);
+fprintf('Speed of sound   = %.3f m/s\n', a);
+fprintf('Cruise Mach      = %.4f\n', M_cruise);
+fprintf('Dynamic pressure = %.2f Pa\n', q);
+fprintf('Required wing S  = %.4f m^2  (from C_L = %.3f)\n', S_req, CL_cruise);
+
+% Build candidate table
+results = [];
+row = 0;
+for im = 1:length(m_vals)
+    for it = 1:length(tau_vals)
+        for iL = 1:length(Lambda_deg)
+            row = row + 1;
+            CD_curve = squeeze(CD(im,it,iL,:))';
+            CD_interp = interp1(M, CD_curve, M_cruise, 'pchip', 'extrap');
+
+            AR_i = 4 / tand(Lambda_deg(iL));
+            b_i = sqrt(AR_i * S_req);
+            c_i = 2 * S_req / b_i;
+            t_i = tau_vals(it) * c_i;
+            r_i = m_vals(im) * c_i;
+            D_wave_i = q * S_req * CD_interp;
+
+            results(row).m = m_vals(im); %#ok<SAGROW>
+            results(row).tau = tau_vals(it);
+            results(row).Lambda_deg = Lambda_deg(iL);
+            results(row).AR = AR_i;
+            results(row).CD_cruise = CD_interp;
+            results(row).S = S_req;
+            results(row).b = b_i;
+            results(row).c = c_i;
+            results(row).t = t_i;
+            results(row).r = r_i;
+            results(row).D_wave = D_wave_i;
+            results(row).T_req = D_wave_i;
+        end
+    end
+end
+
+% Sort by minimum wave drag / minimum CD
+CD_all = [results.CD_cruise];
+[~, idxSort] = sort(CD_all, 'ascend');
+results_sorted = results(idxSort);
+
+fprintf('\nTop 5 candidates ranked by minimum interpolated wave drag coefficient:\n');
+fprintf('Rank   m     tau   Lambda(deg)    AR       CD_cruise      T_req (N)\n');
+for k = 1:min(5, numel(results_sorted))
+    fprintf('%2d   %4.1f  %5.2f     %3.0f       %7.4f    %10.6f    %10.2f\n', ...
+        k, results_sorted(k).m, results_sorted(k).tau, results_sorted(k).Lambda_deg, ...
+        results_sorted(k).AR, results_sorted(k).CD_cruise, results_sorted(k).T_req);
+end
+
+% Pure minimum-drag candidate
+best = results_sorted(1);
+
+fprintf('\nPure minimum-drag choice:\n');
+fprintf('m              = %.1f\n', best.m);
+fprintf('tau            = %.2f\n', best.tau);
+fprintf('Lambda         = %.0f deg\n', best.Lambda_deg);
+fprintf('AR             = %.4f\n', best.AR);
+fprintf('S              = %.4f m^2\n', best.S);
+fprintf('b              = %.4f m\n', best.b);
+fprintf('c              = %.4f m\n', best.c);
+fprintf('t              = %.4f m\n', best.t);
+fprintf('r              = %.4f m\n', best.r);
+fprintf('CD at cruise    = %.6f\n', best.CD_cruise);
+fprintf('Wave drag D     = %.2f N\n', best.D_wave);
+fprintf('Thrust required = %.2f N\n', best.T_req);
+
+% Keep away from the thinnest wing and the very lowest AR when choosing a
+% more practical concept, based on the note in the lab handout.
+keepBalanced = ([results_sorted.tau] >= 0.06) & ([results_sorted.AR] >= 1.5);
+if any(keepBalanced)
+    balanced = results_sorted(find(keepBalanced, 1, 'first'));
+    fprintf('\nBalanced candidate (tau >= 0.06 and AR >= 1.5):\n');
+    fprintf('m              = %.1f\n', balanced.m);
+    fprintf('tau            = %.2f\n', balanced.tau);
+    fprintf('Lambda         = %.0f deg\n', balanced.Lambda_deg);
+    fprintf('AR             = %.4f\n', balanced.AR);
+    fprintf('S              = %.4f m^2\n', balanced.S);
+    fprintf('b              = %.4f m\n', balanced.b);
+    fprintf('c              = %.4f m\n', balanced.c);
+    fprintf('t              = %.4f m\n', balanced.t);
+    fprintf('r              = %.4f m\n', balanced.r);
+    fprintf('CD at cruise    = %.6f\n', balanced.CD_cruise);
+    fprintf('Wave drag D     = %.2f N\n', balanced.D_wave);
+    fprintf('Thrust required = %.2f N\n', balanced.T_req);
+end
+
+% Save candidate summary to MAT and CSV-friendly text file
+save(fullfile(outDir,'part4_results.mat'),'results','results_sorted','best','M_cruise','S_req','q','rho','a','T','p');
+
+summaryFile = fullfile(outDir,'part4_summary.txt');
+fid = fopen(summaryFile,'w');
+fprintf(fid,'AEE 362 Lab 3 Part 4 summary\n');
+fprintf(fid,'Cruise Mach = %.6f\n', M_cruise);
+fprintf(fid,'Required wing area S = %.6f m^2\n\n', S_req);
+fprintf(fid,'Rank   m   tau   Lambda   AR        CD_cruise    T_req_N\n');
+for k = 1:numel(results_sorted)
+    fprintf(fid,'%2d   %.1f  %.2f   %3.0f   %.6f   %.8f   %.4f\n', ...
+        k, results_sorted(k).m, results_sorted(k).tau, results_sorted(k).Lambda_deg, ...
+        results_sorted(k).AR, results_sorted(k).CD_cruise, results_sorted(k).T_req);
+end
+fclose(fid);
+
+fprintf('\nAll plots and summary files were saved in:\n%s\n', outDir);
+
+%% Local Function
+function [T, a, p, rho] = isa_simple(h)
+% Simple ISA evaluator for altitudes up to 20 km.
+% h in meters.
+    gamma = 1.4;
+    R = 287.05287;
+    g0 = 9.80665;
+
+    if h <= 11000
+        T0 = 288.15;
+        p0 = 101325;
+        L = -0.0065;
+        T = T0 + L*h;
+        p = p0 * (T/T0)^(-g0/(L*R));
+    elseif h <= 20000
+        T11 = 216.65;
+        p11 = 22632.06;
+        T = T11;
+        p = p11 * exp(-g0*(h-11000)/(R*T));
+    else
+        error('isa_simple is only set up here for h <= 20 km.');
+    end
+
+    rho = p/(R*T);
+    a = sqrt(gamma*R*T);
+end
